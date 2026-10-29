@@ -86,7 +86,7 @@ export const manufacturerRecords = [
   founded: null,
   founder: null,
   country: null,
-  description: "Earforce amplifier entries in the Kompanion Gear Library.",
+  description: "Earforce amplifier entries in the Kempanion Gear Library.",
   history: null,
   website: null,
   logo: null,

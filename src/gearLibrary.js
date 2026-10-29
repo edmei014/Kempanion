@@ -77,14 +77,12 @@ import {
 
 const APP_VIEW = {
   LIVE: "live",
-  GEAR: "gear",
-  AUDIO: "audio"
+  GEAR: "gear"
 };
 
 const VIEW_SCROLL_SELECTORS = Object.freeze({
   [APP_VIEW.LIVE]: "#liveView .shell--live, #liveView .shell",
-  [APP_VIEW.GEAR]: "#gearLibraryView .gear-library-scroll",
-  [APP_VIEW.AUDIO]: "#audioToolsView .shell--audio"
+  [APP_VIEW.GEAR]: "#gearLibraryView .gear-library-scroll"
 });
 
 const ALL_MANUFACTURERS = "all";
@@ -114,7 +112,6 @@ let manufacturerLibraryStatsData = { manufacturerCount: 0 };
 
 let liveViewRoot = null;
 let gearLibraryViewRoot = null;
-let audioToolsViewRoot = null;
 let appRoot = null;
 let appModuleLauncher = null;
 let appModuleLauncherButton = null;
@@ -124,8 +121,7 @@ let appModuleMenuItems = [];
 /** @type {Record<string, number>} */
 const savedScrollByView = {
   [APP_VIEW.LIVE]: 0,
-  [APP_VIEW.GEAR]: 0,
-  [APP_VIEW.AUDIO]: 0
+  [APP_VIEW.GEAR]: 0
 };
 let gearLibraryTitle = null;
 let gearLibraryCollectionMeta = null;
@@ -223,9 +219,7 @@ export function getActiveAppView() {
 }
 
 function isAppView(view) {
-  return (
-    view === APP_VIEW.LIVE || view === APP_VIEW.GEAR || view === APP_VIEW.AUDIO
-  );
+  return view === APP_VIEW.LIVE || view === APP_VIEW.GEAR;
 }
 
 /**
@@ -272,10 +266,6 @@ function setViewRootVisibility(view) {
     gearLibraryViewRoot.setAttribute("aria-hidden", showGear ? "false" : "true");
   }
 
-  if (audioToolsViewRoot) {
-    const showAudio = view === APP_VIEW.AUDIO;
-    audioToolsViewRoot.setAttribute("aria-hidden", showAudio ? "false" : "true");
-  }
 }
 
 function syncModuleMenuActiveState(view) {
@@ -2835,7 +2825,6 @@ function bindGearLibraryDom() {
   gearKempanionSwitcher = document.querySelector("#gearKempanionSwitcher");
   gearAtlasSwitcher = document.querySelector("#gearAtlasSwitcher");
   noMidiGearAtlasSwitcher = document.querySelector("#noMidiGearAtlasSwitcher");
-  audioToolsViewRoot = document.querySelector("#audioToolsView");
   appModuleLauncher = document.querySelector(".app-module-launcher");
   appModuleLauncherButton = document.querySelector("#appModuleLauncherButton");
   appModuleMenu = document.querySelector("#appModuleMenu");

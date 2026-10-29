@@ -180,7 +180,8 @@ export const cabinetImageMap = [
     manufacturer: "Mesa/Boogie",
     model: "California Tweed 2x12",
     aliases: [
-      "california tweed 2x12"
+      "california tweed 2x12",
+      "cali tweed"
     ]
   },
 
@@ -195,6 +196,7 @@ export const cabinetImageMap = [
       "mars 1960",
       "marshall",
       "mars 4x12",
+      "mars 4*12",
       "nineteen sixty",
       "mars nineteen sixty"
     ]

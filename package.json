@@ -1,7 +1,7 @@
 {
   "name": "kemper-live-companion",
   "version": "0.1.0",
-  "description": "Kompanion — Kemper Profiler desktop companion",
+  "description": "Kempanion — Kemper Profiler desktop companion",
   "private": true,
   "type": "module",
   "scripts": {

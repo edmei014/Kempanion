@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Kompanion",
+  "productName": "Kempanion",
   "version": "0.1.0",
   "identifier": "com.codex.live-companion",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Kompanion",
+        "title": "Kempanion",
         "width": 980,
         "height": 620,
         "minWidth": 760,
@@ -31,7 +31,7 @@
   "bundle": {
     "active": true,
     "publisher": "edmei014",
-    "copyright": "Kompanion · edmei014 · 2026",
+    "copyright": "Kempanion · edmei014 · 2026",
     "targets": ["nsis"],
     "icon": [
       "icons/icon.ico"

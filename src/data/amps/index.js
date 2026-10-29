@@ -26,6 +26,7 @@ import { matchlessAmps } from "./matchless.js";
 import { victoryAmps } from "./victory.js";
 import { revvAmps } from "./revv.js";
 import { riveraAmps } from "./rivera.js";
+import { hugheskettnerAmps } from "./hughes-kettner.js";
 
 /**
  * Sole amp registration list.
@@ -62,5 +63,6 @@ export const allAmpRecords = [
   ...matchlessAmps,
   ...victoryAmps,
   ...revvAmps,
-  ...riveraAmps
+  ...riveraAmps,
+  ...hugheskettnerAmps
 ];

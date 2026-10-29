@@ -18,12 +18,19 @@ import {
   registerViewChangeHandler,
   setAppView
 } from "./gearLibrary.js";
-import { initializeAudioTools } from "./modules/audioTools/AudioToolsView.js";
+import {
+  LEGACY_RIG_NOTES_KEY,
+  RIG_NOTES_LEGACY_UNMAPPED_KEY,
+  SLOT_NOTES_KEY,
+  hydrateSlotNotesFromDocument,
+  makeSlotNoteKey
+} from "./performanceLibrarySlotNotes.js";
 import { initializeBidirectionalDiscovery } from "./modules/bidirectional/BidirectionalDiscovery.js";
 import { isBooleanOn } from "./modules/bidirectional/decoder/parameterScales.js";
 import { parameterService } from "./modules/bidirectional/ParameterService.js";
 import { CONTROL_PARAMETERS } from "./modules/bidirectional/controlBindings.js";
 import { initializeAmpImageResolver } from "./resolver/imageResolver.js";
+import { initLiveViewMode } from "./liveViewMode.js";
 import {
   getEffectTypeName,
   observeEffectType,
@@ -95,6 +102,7 @@ const DELAY_REVERB_SYNC_STATUS_PARAM_ID = kemperParamId(0x7c, 0x00);
 const PUSH_TRAFFIC_MAX_AGE_MS = 5000;
 const PUSH_CONFIRM_WINDOW_MS = 800;
 const RIG_CHANGE_REFRESH_DEBOUNCE_MS = 180;
+const DEBUG_RIG_SWITCH_TIMING = false;
 const SLOT_SELECTORS = [
   { key: "slot1", label: "Slot 1", cc: 50, value: 1 },
   { key: "slot2", label: "Slot 2", cc: 51, value: 1 },
@@ -131,7 +139,6 @@ let delayReverbStatusRefreshQueued = false;
 const PERFORMANCE_LIBRARY_STORAGE_KEY = "kemper-performance-library";
 const PERFORMANCE_LIBRARY_META_KEY = "_meta";
 const PERFORMANCE_NAMES_KEY = "performanceNames";
-const RIG_NOTES_KEY = "rigNotes";
 const RIG_NOTES_SAVE_DEBOUNCE_MS = 800;
 const CONTROL_CHANGES = {
   tapTempo: 30,
@@ -307,6 +314,8 @@ const MANUFACTURER_PATTERNS = [
 const inputPort = document.querySelector("#inputPort");
 const outputPort = document.querySelector("#outputPort");
 const rigName = document.querySelector("#rigName");
+const rigNamePrevButton = document.querySelector("#rigNamePrevButton");
+const rigNameNextButton = document.querySelector("#rigNameNextButton");
 const ampManufacturer = document.querySelector("#ampManufacturer");
 const ampModel = document.querySelector("#ampModel");
 const ampDetailsManufacturer = document.querySelector("#ampDetailsManufacturer");
@@ -324,6 +333,14 @@ const ampDetailsOriginalRigName = document.querySelector("#ampDetailsOriginalRig
 const ampDetailsOriginalAmpName = document.querySelector("#ampDetailsOriginalAmpName");
 const productionYear = document.querySelector("#productionYear");
 const cabinetSection = document.querySelector(".cabinet-section");
+const ampDetailsSection = document.querySelector("#ampDetailsSection");
+const effectsSection = document.querySelector("#effectsSection");
+const ampSection = document.querySelector("#ampSection");
+const rigCard = document.querySelector("#rigCard");
+const liveViewMenuButton = document.querySelector("#liveViewMenuButton");
+const liveViewMenuPanel = document.querySelector("#liveViewMenuPanel");
+const ampOnlyExitButton = document.querySelector("#ampOnlyExitButton");
+let liveViewController = null;
 const rigNotesInput = document.querySelector("#rigNotesInput");
 const cabinetComboLabel = document.querySelector("#cabinetComboLabel");
 const cabinetRecognizedGroup = document.querySelector("[data-cabinet-recognized]");
@@ -359,6 +376,7 @@ const performanceScanStatus = document.querySelector("#performanceScanStatus");
 const performanceProgress = document.querySelector("#performanceProgress");
 const performanceProgressFill = document.querySelector("#performanceProgressFill");
 const performanceSlotGrid = document.querySelector("#performanceSlotGrid");
+const performanceSlotIndicatorRow = document.querySelector("#performanceSlotIndicatorRow");
 const performanceExplorerSection = document.querySelector("#performanceExplorerSection");
 const performanceSearchZone = document.querySelector("#performanceSearchZone");
 const performanceBrowserHeaderBar = document.querySelector("#performanceBrowserHeaderBar");
@@ -409,12 +427,17 @@ let consecutiveMonitorFailures = 0;
 let performanceLibraryDocument = {};
 /** Kempanion-only labels keyed by performance number; never sent to the Kemper. */
 let performanceNames = {};
-let rigNotes = {};
-let rigNotesRigName = "";
+let slotNotes = {};
+let rigNotesLegacy = {};
+/** @type {string | null} Active slot note key (performanceIndex:slotIndex). */
+let rigNotesSlotKey = null;
 let rigNotesSaveTimer = null;
 let performanceLibraryScanInProgress = false;
 let isReloadingCurrentPerformance = false;
+/** Confirmed slot (1–5) for the arrow under the Performance Browser; updated on successful load or external Kemper sync. */
 let activePerformanceSlotIndex = 1;
+/** Last performance index confirmed on the Kemper via loadBrowserPerformanceSlot MIDI. */
+let kemperLoadedPerformanceIndex = null;
 let selectedPerformanceIndex = null;
 let performanceExplorerExpanded = false;
 let isLoadingPerformanceSlot = false;
@@ -887,6 +910,13 @@ function delay(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function logRigSwitchTiming(phase, startMs, detail = "") {
+  if (!DEBUG_RIG_SWITCH_TIMING) return;
+  const elapsedMs = performance.now() - startMs;
+  const suffix = detail ? ` (${detail})` : "";
+  console.info(`[RigSwitchTiming] ${phase}: ${elapsedMs.toFixed(1)}ms${suffix}`);
+}
+
 function makeControlChange(controller, value) {
   return [STATUS_CONTROL_CHANGE, controller & 0x7f, value & 0x7f];
 }
@@ -1130,20 +1160,35 @@ function formatPerformanceLabel(performanceIndex) {
   return name ? `Performance ${performanceIndex} · ${name}` : `Performance ${performanceIndex}`;
 }
 
-function normalizeRigNotes(value) {
-  if (!value || typeof value !== "object") return {};
+function applySlotNotesToLibraryDocument(document) {
+  if (Object.keys(slotNotes).length > 0) {
+    document[SLOT_NOTES_KEY] = { ...slotNotes };
+  } else {
+    delete document[SLOT_NOTES_KEY];
+  }
 
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key, note]) => key.trim() && typeof note === "string" && note.trim())
-      .map(([key, note]) => [key.trim(), note])
-  );
+  delete document[LEGACY_RIG_NOTES_KEY];
+
+  if (Object.keys(rigNotesLegacy).length > 0) {
+    document[RIG_NOTES_LEGACY_UNMAPPED_KEY] = { ...rigNotesLegacy };
+  } else {
+    delete document[RIG_NOTES_LEGACY_UNMAPPED_KEY];
+  }
 }
 
 async function loadPerformanceLibraryDocument() {
   const document = await readPerformanceLibraryDocument();
   performanceNames = normalizePerformanceNames(document?.[PERFORMANCE_NAMES_KEY]);
-  rigNotes = normalizeRigNotes(document?.[RIG_NOTES_KEY]);
+  const performanceEntries = getPerformanceEntries(document);
+  const hydrated = hydrateSlotNotesFromDocument(document, performanceEntries);
+  slotNotes = hydrated.slotNotes;
+  rigNotesLegacy = hydrated.rigNotesLegacy;
+
+  if (hydrated.migratedFromRigNames > 0) {
+    applySlotNotesToLibraryDocument(document);
+    await savePerformanceLibraryDocument(document);
+  }
+
   return document;
 }
 
@@ -1179,11 +1224,7 @@ async function savePerformanceLibraryDocument(document) {
     delete document[PERFORMANCE_NAMES_KEY];
   }
 
-  if (Object.keys(rigNotes).length > 0) {
-    document[RIG_NOTES_KEY] = { ...rigNotes };
-  } else {
-    delete document[RIG_NOTES_KEY];
-  }
+  applySlotNotesToLibraryDocument(document);
 
   const serialized = JSON.stringify(document, null, 2);
   const fromTauri = await invokeTauri("save_performance_library", { contents: serialized });
@@ -1335,6 +1376,7 @@ function setPerformanceExplorerExpanded(expanded) {
     performanceSection.dataset.explorerExpanded = expanded ? "true" : "false";
   }
 
+  liveViewController?.syncEffectsTriColumnLayout?.();
   syncCreateLibraryButtonVisibility();
 
   if (expanded) {
@@ -1356,14 +1398,11 @@ function syncCreateLibraryButtonVisibility() {
 }
 
 function isPerformanceExplorerEventTarget(target) {
-  if (!(target instanceof Node)) return false;
+  if (!(target instanceof Element)) return false;
   return Boolean(
-    performanceBrowserPanel?.contains(target) ||
-    performanceExplorerSearch?.contains(target) ||
-    performanceBrowserControls?.contains(target) ||
-    performanceReloadButton?.contains(target) ||
-    performanceBrowserLabel?.contains(target) ||
-    createLibraryButton?.contains(target)
+    target.closest("#performanceBrowserHeaderBar") ||
+    target.closest("#performanceBrowserPanel") ||
+    target.closest("#createLibraryButton")
   );
 }
 
@@ -1522,16 +1561,26 @@ function renderPerformanceExplorer() {
     }
 
     const label = document.createElement("div");
-    const performanceName = getPerformanceName(performanceIndex);
-    const labelText = performanceName ? `${performanceIndex} · ${performanceName}` : performanceIndex;
     label.className = "performance-explorer-row-label";
-    const performanceLabelMatches =
+    label.title = formatPerformanceLabel(performanceIndex);
+
+    const indexSpan = document.createElement("span");
+    indexSpan.className = "performance-explorer-row-index";
+    const indexMatchesQuery =
       Boolean(query) &&
       (String(performanceIndex).includes(query) ||
-        `performance ${performanceIndex}`.includes(query) ||
-        getPerformanceName(performanceIndex).toLowerCase().includes(query));
-    appendExplorerHighlightedText(label, labelText, performanceLabelMatches ? query : "");
-    if (performanceName) label.title = formatPerformanceLabel(performanceIndex);
+        `performance ${performanceIndex}`.includes(query));
+    appendExplorerHighlightedText(indexSpan, String(performanceIndex), indexMatchesQuery ? query : "");
+
+    const nameHost = document.createElement("span");
+    nameHost.className = "performance-explorer-row-name";
+    nameHost.dataset.performanceIndex = String(performanceIndex);
+    nameHost.setAttribute("role", "button");
+    nameHost.tabIndex = 0;
+    updateExplorerPerformanceNameDisplay(nameHost, performanceIndex, query);
+    bindExplorerPerformanceNameHost(nameHost, performanceIndex);
+
+    label.append(indexSpan, nameHost);
 
     const slotsWrap = document.createElement("div");
     slotsWrap.className = "performance-explorer-slots";
@@ -1630,6 +1679,224 @@ function selectAdjacentPerformance(direction) {
   selectPerformanceByOffset(direction);
 }
 
+function resolveKemperRigSlotMatch() {
+  const currentRig = String(currentRigName || "").trim();
+  if (!currentRig || !hasPerformanceLibrary(performanceLibraryDocument)) return null;
+
+  const entries = getPerformanceEntries(performanceLibraryDocument);
+  const indexes = getPerformanceIndexList();
+  const matches = [];
+
+  for (const performanceIndex of indexes) {
+    const slots = entries[String(performanceIndex)] || {};
+    for (let slotIndex = 1; slotIndex <= SLOT_SELECTORS.length; slotIndex += 1) {
+      if (getPerformanceSlotRigName(slots[String(slotIndex)]) === currentRig) {
+        matches.push({
+          performanceIndex: String(performanceIndex),
+          slotIndex
+        });
+      }
+    }
+  }
+
+  if (matches.length === 1) return matches[0];
+  return null;
+}
+
+function syncPerformanceBrowserWithKemperRigMatch() {
+  const currentRig = String(currentRigName || "").trim();
+  if (
+    !currentRig ||
+    !hasPerformanceLibrary(performanceLibraryDocument) ||
+    performanceLibraryScanInProgress ||
+    isLoadingPerformanceSlot
+  ) {
+    updatePerformanceSlotActiveIndicators();
+    return;
+  }
+
+  const match = resolveKemperRigSlotMatch();
+  if (!match) {
+    updatePerformanceSlotActiveIndicators();
+    return;
+  }
+
+  const nextPerformanceIndex = String(match.performanceIndex);
+  const nextSlotIndex = match.slotIndex;
+  const selectionChanged =
+    String(selectedPerformanceIndex) !== nextPerformanceIndex ||
+    activePerformanceSlotIndex !== nextSlotIndex;
+
+  selectedPerformanceIndex = nextPerformanceIndex;
+  activePerformanceSlotIndex = nextSlotIndex;
+
+  if (selectionChanged) {
+    renderPerformanceBrowser();
+  } else {
+    updatePerformanceSlotActiveIndicators();
+  }
+}
+
+function buildRigNavigationSequence() {
+  const indexes = getPerformanceIndexList();
+  const sequence = [];
+
+  for (const performanceIndex of indexes) {
+    for (let slotIndex = 1; slotIndex <= SLOT_SELECTORS.length; slotIndex += 1) {
+      sequence.push({
+        performanceIndex: String(performanceIndex),
+        slotIndex
+      });
+    }
+  }
+
+  return sequence;
+}
+
+function resolveRigNavigationPosition() {
+  const kemperMatch = resolveKemperRigSlotMatch();
+  if (kemperMatch) return kemperMatch;
+
+  const selected = getSelectedPerformanceData();
+  if (!selected) return null;
+
+  const slotIndex =
+    activePerformanceSlotIndex >= 1 && activePerformanceSlotIndex <= SLOT_SELECTORS.length
+      ? activePerformanceSlotIndex
+      : 1;
+
+  return {
+    performanceIndex: String(selected.performanceIndex),
+    slotIndex
+  };
+}
+
+function findRigNavigationIndex(sequence, position) {
+  if (!position) return -1;
+
+  return sequence.findIndex(
+    (entry) =>
+      String(entry.performanceIndex) === String(position.performanceIndex) &&
+      entry.slotIndex === position.slotIndex
+  );
+}
+
+async function selectAdjacentRigSlot(direction) {
+  if (
+    direction === 0 ||
+    isLoadingPerformanceSlot ||
+    performanceLibraryScanInProgress ||
+    isReloadingCurrentPerformance ||
+    !hasPerformanceLibrary(performanceLibraryDocument)
+  ) {
+    return;
+  }
+
+  const sequence = buildRigNavigationSequence();
+  if (sequence.length === 0) return;
+
+  const currentIndex = findRigNavigationIndex(sequence, resolveRigNavigationPosition());
+  if (currentIndex === -1) return;
+
+  const nextIndex = currentIndex + direction;
+  if (nextIndex < 0 || nextIndex >= sequence.length) return;
+
+  const next = sequence[nextIndex];
+  await loadBrowserPerformanceSlot(next.performanceIndex, next.slotIndex);
+}
+
+function updateRigNameNavButtons() {
+  const blocked =
+    performanceLibraryScanInProgress ||
+    isLoadingPerformanceSlot ||
+    isReloadingCurrentPerformance ||
+    !isConnectionOperational() ||
+    !hasPerformanceLibrary(performanceLibraryDocument);
+
+  if (rigNamePrevButton) {
+    rigNamePrevButton.disabled = true;
+  }
+  if (rigNameNextButton) {
+    rigNameNextButton.disabled = true;
+  }
+
+  if (blocked) return;
+
+  const sequence = buildRigNavigationSequence();
+  if (sequence.length === 0) return;
+
+  const currentIndex = findRigNavigationIndex(sequence, resolveRigNavigationPosition());
+  if (currentIndex === -1) return;
+
+  if (rigNamePrevButton) {
+    rigNamePrevButton.disabled = currentIndex <= 0;
+  }
+  if (rigNameNextButton) {
+    rigNameNextButton.disabled = currentIndex >= sequence.length - 1;
+  }
+}
+
+let performanceSlotIndicatorLayoutGeneration = 0;
+
+function applyPerformanceSlotActiveIndicatorPosition(activeSlotIndex) {
+  if (!performanceSlotGrid || !performanceSlotIndicatorRow) return;
+
+  const indicator = performanceSlotIndicatorRow.querySelector(".performance-slot-active-indicator");
+  const gridWrap = performanceSlotGrid.parentElement;
+  if (!indicator || !gridWrap) return;
+
+  const card = performanceSlotGrid.querySelector(
+    `.performance-slot-card[data-slot-index="${activeSlotIndex}"]`
+  );
+  if (!card) {
+    performanceSlotIndicatorRow.hidden = true;
+    return;
+  }
+
+  const wrapRect = gridWrap.getBoundingClientRect();
+  const cardRect = card.getBoundingClientRect();
+  const centerX = cardRect.left - wrapRect.left + cardRect.width / 2;
+
+  performanceSlotIndicatorRow.style.left = "0";
+  performanceSlotIndicatorRow.style.width = "100%";
+  indicator.style.removeProperty("grid-column");
+  indicator.style.left = `${centerX}px`;
+  performanceSlotIndicatorRow.hidden = false;
+}
+
+function updatePerformanceSlotActiveIndicators() {
+  if (!performanceSlotGrid || !performanceSlotIndicatorRow) return;
+
+  const gridWrap = performanceSlotGrid.parentElement;
+  if (!gridWrap) return;
+
+  if (
+    performanceSlotGrid.hidden ||
+    isLoadingPerformanceSlot ||
+    !hasPerformanceLibrary(performanceLibraryDocument)
+  ) {
+    performanceSlotIndicatorRow.hidden = true;
+    return;
+  }
+
+  const slotIndex = activePerformanceSlotIndex;
+  if (slotIndex < 1 || slotIndex > SLOT_SELECTORS.length) {
+    performanceSlotIndicatorRow.hidden = true;
+    return;
+  }
+
+  const generation = (performanceSlotIndicatorLayoutGeneration += 1);
+  requestAnimationFrame(() => {
+    if (generation !== performanceSlotIndicatorLayoutGeneration) return;
+    const currentSlot = activePerformanceSlotIndex;
+    if (currentSlot < 1 || currentSlot > SLOT_SELECTORS.length) {
+      performanceSlotIndicatorRow.hidden = true;
+      return;
+    }
+    applyPerformanceSlotActiveIndicatorPosition(currentSlot);
+  });
+}
+
 function updatePerformanceNavButtons() {
   const indexes = getPerformanceIndexList();
   const blocked =
@@ -1657,6 +1924,9 @@ function updatePerformanceNavButtons() {
   if (performancePrevButton) performancePrevButton.disabled = blocked || atFirst;
   if (performanceNextButton) performanceNextButton.disabled = blocked || atLast;
   if (performanceNextFastButton) performanceNextFastButton.disabled = blocked || atLast;
+
+  updateRigNameNavButtons();
+  updatePerformanceSlotActiveIndicators();
 }
 
 function setPerformanceSlotCardsState(activeSlotIndex, state) {
@@ -1725,6 +1995,8 @@ async function waitForRigChangeFrom(previousRigName, { timeoutMs = 8000, pollMs 
 }
 
 async function loadBrowserPerformanceSlot(performanceIndex, slotIndex) {
+  const loadStartedAt = DEBUG_RIG_SWITCH_TIMING ? performance.now() : 0;
+
   if (isLoadingPerformanceSlot || performanceLibraryScanInProgress || isReloadingCurrentPerformance) {
     return;
   }
@@ -1732,7 +2004,14 @@ async function loadBrowserPerformanceSlot(performanceIndex, slotIndex) {
   const slot = SLOT_SELECTORS[slotIndex - 1];
   if (!slot) return;
 
-  selectedPerformanceIndex = String(performanceIndex);
+  const targetPerformanceIndex = String(performanceIndex);
+  const priorPerformanceIndex = selectedPerformanceIndex;
+  const priorActiveSlotIndex = activePerformanceSlotIndex;
+  const performanceAlreadyActive =
+    kemperLoadedPerformanceIndex !== null &&
+    String(kemperLoadedPerformanceIndex) === targetPerformanceIndex;
+
+  selectedPerformanceIndex = targetPerformanceIndex;
 
   const entries = getPerformanceEntries(performanceLibraryDocument);
   const expectedRigName = getPerformanceSlotRigName(
@@ -1743,7 +2022,6 @@ async function loadBrowserPerformanceSlot(performanceIndex, slotIndex) {
   if (!Number.isFinite(performanceNumber) || performanceNumber < 1) return;
 
   isLoadingPerformanceSlot = true;
-  activePerformanceSlotIndex = slotIndex;
   stopRigMonitor();
   updateControlSectionControls();
   updatePerformanceReloadButtonState();
@@ -1758,27 +2036,48 @@ async function loadBrowserPerformanceSlot(performanceIndex, slotIndex) {
   try {
     const { output } = await getMidiPorts();
 
-    sendMidiSafe(
-      output,
-      makePerformanceSelectCommand(performanceNumber - 1),
-      `Browser Performance ${performanceNumber} preselect`
-    );
-    await delay(PERFORMANCE_SELECT_SETTLE_MS);
+    if (!performanceAlreadyActive) {
+      const performanceCcStartedAt = DEBUG_RIG_SWITCH_TIMING ? performance.now() : 0;
+      sendMidiSafe(
+        output,
+        makePerformanceSelectCommand(performanceNumber - 1),
+        `Browser Performance ${performanceNumber} preselect`
+      );
+      await delay(PERFORMANCE_SELECT_SETTLE_MS);
+      logRigSwitchTiming("performance-cc+settle", performanceCcStartedAt);
+    } else if (DEBUG_RIG_SWITCH_TIMING) {
+      console.info("[RigSwitchTiming] performance-cc+settle: skipped (kemper already on performance)");
+    }
 
+    const slotCcStartedAt = DEBUG_RIG_SWITCH_TIMING ? performance.now() : 0;
     sendMidiSafe(
       output,
       makeSlotSelectCommand(slot),
       `Browser Performance ${performanceNumber} Slot ${slotIndex}`
     );
     await delay(SLOT_SETTLE_MS);
+    logRigSwitchTiming("slot-cc+settle", slotCcStartedAt);
 
+    kemperLoadedPerformanceIndex = targetPerformanceIndex;
+
+    const waitForRigStartedAt = DEBUG_RIG_SWITCH_TIMING ? performance.now() : 0;
     const rigChanged = expectedRigName
       ? await waitForRigName(expectedRigName)
       : await waitForRigChangeFrom(currentRigName);
+    logRigSwitchTiming("waitForRigName", waitForRigStartedAt, `matched=${rigChanged}`);
 
+    const refreshStartedAt = DEBUG_RIG_SWITCH_TIMING ? performance.now() : 0;
     await refreshLiveData();
+    logRigSwitchTiming("refreshLiveData (awaited from loadBrowser)", refreshStartedAt);
+
+    logRigSwitchTiming(
+      "loadBrowserPerformanceSlot total",
+      loadStartedAt,
+      `perf=${performanceIndex} slot=${slotIndex} perfCcSkipped=${performanceAlreadyActive}`
+    );
 
     if (rigChanged) {
+      activePerformanceSlotIndex = slotIndex;
       setPerformanceSlotCardsState(slotIndex, "success");
       setPerformanceExplorerSlotState(performanceIndex, slotIndex, "success");
       window.setTimeout(() => {
@@ -1786,13 +2085,19 @@ async function loadBrowserPerformanceSlot(performanceIndex, slotIndex) {
         setPerformanceExplorerSlotState(null, null, "idle");
       }, 700);
     } else {
+      selectedPerformanceIndex = priorPerformanceIndex;
+      activePerformanceSlotIndex = priorActiveSlotIndex;
       setPerformanceSlotCardsState(null, "idle");
       setPerformanceExplorerSlotState(null, null, "idle");
+      renderPerformanceBrowser();
     }
   } catch (error) {
     console.warn("[Live Companion] Performance slot load failed:", error.message || error);
+    selectedPerformanceIndex = priorPerformanceIndex;
+    activePerformanceSlotIndex = priorActiveSlotIndex;
     setPerformanceSlotCardsState(null, "idle");
     setPerformanceExplorerSlotState(null, null, "idle");
+    renderPerformanceBrowser();
   } finally {
     isLoadingPerformanceSlot = false;
     updatePerformanceNavButtons();
@@ -1824,6 +2129,8 @@ function renderPerformanceBrowser() {
     }
     updatePerformanceSectionLayout();
     updatePerformanceReloadButtonState();
+    updateRigNameNavButtons();
+    updatePerformanceSlotActiveIndicators();
     return;
   }
 
@@ -1871,18 +2178,54 @@ function renderPerformanceBrowser() {
     card.setAttribute("aria-label", `Slot ${slotIndex}: ${rig}`);
     label.textContent = `Slot ${slotIndex}`;
     name.textContent = rig;
+
     card.append(label, name);
     performanceSlotGrid.append(card);
   });
 
   updatePerformanceSectionLayout();
   updatePerformanceReloadButtonState();
+  syncRigNotesInput();
 }
 
 async function initializePerformanceLibrary() {
   performanceLibraryDocument = await loadPerformanceLibraryDocument();
   renderPerformanceBrowser();
-  renderRigNotes(currentRigName, { force: true });
+  syncRigNotesInput({ force: true });
+}
+
+function resolveCurrentSlotNoteContext() {
+  if (!hasPerformanceLibrary(performanceLibraryDocument)) return null;
+
+  const kemperMatch = resolveKemperRigSlotMatch();
+  if (kemperMatch) {
+    return {
+      performanceIndex: String(kemperMatch.performanceIndex),
+      slotIndex: kemperMatch.slotIndex
+    };
+  }
+
+  const navigation = resolveRigNavigationPosition();
+  if (navigation) {
+    return {
+      performanceIndex: String(navigation.performanceIndex),
+      slotIndex: navigation.slotIndex
+    };
+  }
+
+  const selected = getSelectedPerformanceData();
+  if (
+    selected &&
+    activePerformanceSlotIndex >= 1 &&
+    activePerformanceSlotIndex <= SLOT_SELECTORS.length
+  ) {
+    return {
+      performanceIndex: String(selected.performanceIndex),
+      slotIndex: activePerformanceSlotIndex
+    };
+  }
+
+  return null;
 }
 
 async function setPerformanceName(performanceIndex, name) {
@@ -1902,12 +2245,148 @@ async function setPerformanceName(performanceIndex, name) {
   await savePerformanceLibraryDocument(performanceLibraryDocument);
 }
 
-async function setRigNote(rigNameKey, text) {
-  const key = String(rigNameKey || "").trim();
-  if (!key) return;
+function syncSelectedPerformanceBrowserLabel() {
+  if (!performanceBrowserLabel || performanceBrowserLabel.dataset.editing === "true") return;
 
+  const selected = getSelectedPerformanceData();
+  if (!selected) return;
+
+  const labelText = formatPerformanceLabel(selected.performanceIndex);
+  performanceBrowserLabel.textContent = labelText;
+  performanceBrowserLabel.title = `${labelText} — click to rename`;
+}
+
+function getExplorerPerformanceNameQuery() {
+  return normalizeExplorerQuery(performanceExplorerSearch?.value || "");
+}
+
+function updateExplorerPerformanceNameDisplay(nameHost, performanceIndex, query = getExplorerPerformanceNameQuery()) {
+  if (!nameHost) return;
+
+  const customName = getPerformanceName(performanceIndex);
+  const displayText = customName || `Performance ${performanceIndex}`;
+
+  nameHost.dataset.editing = "false";
+  nameHost.classList.toggle("is-default", !customName);
+
+  const nameMatchesQuery =
+    Boolean(query) &&
+    (customName.toLowerCase().includes(query) ||
+      (!customName && `performance ${performanceIndex}`.includes(query)));
+  appendExplorerHighlightedText(nameHost, displayText, nameMatchesQuery ? query : "");
+
+  nameHost.title = customName
+    ? `${formatPerformanceLabel(performanceIndex)} — click to rename`
+    : `Click to name Performance ${performanceIndex}`;
+}
+
+async function commitExplorerPerformanceName(performanceIndex, input) {
+  if (!input || input.dataset.busy === "true") return;
+
+  const previous = getPerformanceName(performanceIndex);
+  const trimmed = String(input.value || "").trim();
+  if (trimmed === previous) return;
+
+  input.dataset.busy = "true";
+  try {
+    await setPerformanceName(performanceIndex, input.value);
+    if (String(selectedPerformanceIndex) === String(performanceIndex)) {
+      syncSelectedPerformanceBrowserLabel();
+    }
+  } catch (error) {
+    console.warn("[Live Companion] Performance name save failed:", error?.message || error);
+    input.value = previous;
+    throw error;
+  } finally {
+    delete input.dataset.busy;
+  }
+}
+
+function beginExplorerPerformanceNameEdit(performanceIndex, nameHost) {
+  if (!nameHost || performanceLibraryScanInProgress) return;
+  if (nameHost.dataset.editing === "true") return;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "performance-explorer-row-name-input";
+  input.value = getPerformanceName(performanceIndex);
+  input.placeholder = `Performance ${performanceIndex}`;
+  input.maxLength = 60;
+  input.spellcheck = false;
+  input.autocomplete = "off";
+  input.setAttribute(
+    "aria-label",
+    `Display name for Performance ${performanceIndex}. Leave empty for the default name.`
+  );
+
+  let finished = false;
+
+  const stopRowPointer = (event) => {
+    event.stopPropagation();
+  };
+
+  async function finish(commit) {
+    if (finished) return;
+    finished = true;
+
+    if (commit) {
+      try {
+        await commitExplorerPerformanceName(performanceIndex, input);
+      } catch {
+        // Display restores from persisted name below.
+      }
+    }
+
+    updateExplorerPerformanceNameDisplay(nameHost, performanceIndex);
+  }
+
+  input.addEventListener("mousedown", stopRowPointer);
+  input.addEventListener("click", stopRowPointer);
+  input.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Enter") {
+      event.preventDefault();
+      input.blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => {
+    void finish(true);
+  });
+
+  nameHost.dataset.editing = "true";
+  nameHost.textContent = "";
+  nameHost.append(input);
+  input.focus();
+  input.select();
+}
+
+function bindExplorerPerformanceNameHost(nameHost, performanceIndex) {
+  const stopRowPointer = (event) => {
+    event.stopPropagation();
+  };
+
+  nameHost.addEventListener("mousedown", stopRowPointer);
+  nameHost.addEventListener("click", (event) => {
+    stopRowPointer(event);
+    if (event.target.closest(".performance-explorer-row-name-input")) return;
+    beginExplorerPerformanceNameEdit(performanceIndex, nameHost);
+  });
+  nameHost.addEventListener("keydown", (event) => {
+    if (event.target.closest(".performance-explorer-row-name-input")) return;
+    event.stopPropagation();
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    beginExplorerPerformanceNameEdit(performanceIndex, nameHost);
+  });
+}
+
+async function setSlotNote(performanceIndex, slotIndex, text) {
+  const key = makeSlotNoteKey(performanceIndex, slotIndex);
   const note = String(text ?? "");
-  const nextNotes = { ...rigNotes };
+  const nextNotes = { ...slotNotes };
 
   if (note.trim()) {
     nextNotes[key] = note;
@@ -1915,10 +2394,10 @@ async function setRigNote(rigNameKey, text) {
     delete nextNotes[key];
   }
 
-  if (nextNotes[key] === rigNotes[key]) return;
+  if (nextNotes[key] === slotNotes[key]) return;
 
-  rigNotes = nextNotes;
-  // A running scan saves its own document on every step and carries rigNotes along.
+  slotNotes = nextNotes;
+  // A running scan saves its own document on every step and carries slotNotes along.
   if (performanceLibraryScanInProgress) return;
   await savePerformanceLibraryDocument(performanceLibraryDocument);
 }
@@ -1928,27 +2407,53 @@ function flushRigNote() {
     window.clearTimeout(rigNotesSaveTimer);
     rigNotesSaveTimer = null;
   }
-  if (!rigNotesInput || !rigNotesRigName) return;
+  if (!rigNotesInput || !rigNotesSlotKey) return;
 
-  setRigNote(rigNotesRigName, rigNotesInput.value).catch((error) => {
+  const parsed = parseSlotNoteKeyFromState(rigNotesSlotKey);
+  if (!parsed) return;
+
+  setSlotNote(parsed.performanceIndex, parsed.slotIndex, rigNotesInput.value).catch((error) => {
     console.warn("[Live Companion] Rig note save failed:", error?.message || error);
   });
 }
 
-function renderRigNotes(nextRigName, { force = false } = {}) {
+/** @param {string} key */
+function parseSlotNoteKeyFromState(key) {
+  const match = String(key).match(/^(\d+):([1-5])$/);
+  if (!match) return null;
+  return { performanceIndex: match[1], slotIndex: Number(match[2]) };
+}
+
+function syncRigNotesInput({ force = false } = {}) {
   if (!rigNotesInput) return;
 
-  const key = String(nextRigName || "").trim();
-  if (key === rigNotesRigName) {
+  const context = resolveCurrentSlotNoteContext();
+  const nextKey = context ? makeSlotNoteKey(context.performanceIndex, context.slotIndex) : null;
+
+  if (nextKey === rigNotesSlotKey) {
     if (!force || document.activeElement === rigNotesInput) return;
   } else {
     flushRigNote();
   }
 
-  rigNotesRigName = key;
-  rigNotesInput.value = key ? rigNotes[key] || "" : "";
-  rigNotesInput.disabled = !key;
-  rigNotesInput.setAttribute("aria-label", key ? `Notes for ${key}` : "Notes");
+  rigNotesSlotKey = nextKey;
+
+  if (!nextKey) {
+    rigNotesInput.value = "";
+    rigNotesInput.disabled = true;
+    rigNotesInput.setAttribute("aria-label", "Notes");
+    return;
+  }
+
+  rigNotesInput.value = slotNotes[nextKey] || "";
+  rigNotesInput.disabled = false;
+  const parsed = parseSlotNoteKeyFromState(nextKey);
+  rigNotesInput.setAttribute(
+    "aria-label",
+    parsed
+      ? `Notes for Performance ${parsed.performanceIndex}, Slot ${parsed.slotIndex}`
+      : "Notes"
+  );
 }
 
 function beginPerformanceNameEdit() {
@@ -1980,6 +2485,14 @@ function beginPerformanceNameEdit() {
 
     if (commit) {
       await setPerformanceName(performanceIndex, input.value);
+      if (performanceExplorerExpanded && performanceExplorerList) {
+        const rowNameHost = performanceExplorerList.querySelector(
+          `.performance-explorer-row-name[data-performance-index="${String(performanceIndex)}"]`
+        );
+        if (rowNameHost && rowNameHost.dataset.editing !== "true") {
+          updateExplorerPerformanceNameDisplay(rowNameHost, performanceIndex);
+        }
+      }
     }
 
     renderPerformanceBrowser();
@@ -2424,6 +2937,7 @@ function handleDisconnected() {
   bidirectionalDiscovery.stop();
   consecutiveMonitorFailures = 0;
   currentLiveAmpId = null;
+  kemperLoadedPerformanceIndex = null;
   updateLiveAmpDetailAffordance();
   setConnectionState(CONNECTION_STATE.NO_MIDI);
 }
@@ -3564,6 +4078,8 @@ function renderEffects(effects) {
 
     updateEffectItem(item, effect);
   });
+
+  liveViewController?.syncEffectsTriColumnLayout?.();
 }
 
 function gainRawToScaleValue(rawValue) {
@@ -4096,6 +4612,7 @@ function startRigMonitor() {
 async function refreshLiveData() {
   if (isRefreshingLiveData) return;
 
+  const refreshStartedAt = DEBUG_RIG_SWITCH_TIMING ? performance.now() : 0;
   isRefreshingLiveData = true;
 
   if (initialBootComplete) {
@@ -4103,10 +4620,12 @@ async function refreshLiveData() {
   }
 
   try {
+    const requestLiveStartedAt = DEBUG_RIG_SWITCH_TIMING ? performance.now() : 0;
     const liveData = await requestLiveKemperData();
+    logRigSwitchTiming("requestLiveKemperData", requestLiveStartedAt);
     currentRigName = liveData.rigName || currentRigName;
     rigName.textContent = liveData.rigName || "-";
-    renderRigNotes(liveData.rigName);
+    syncRigNotesInput();
     ampManufacturer.textContent = liveData.manufacturer || "-";
     ampModel.textContent = liveData.ampModel || "-";
     ampModel.title = liveData.ampModel || "";
@@ -4171,6 +4690,7 @@ async function refreshLiveData() {
       ampImage.className = "amp-image";
       ampImage.alt = liveData.ampModel || liveData.manufacturer || "Amplifier";
       ampImageContainer.append(ampImage);
+      liveViewController?.scheduleAmpOnlyImageFit?.();
     }
     updateLiveAmpDetailAffordance();
 
@@ -4182,6 +4702,8 @@ async function refreshLiveData() {
     renderGain(liveData.gain, liveData.gainRaw);
     renderCurrentTempo(liveData.tempoBpmRaw);
     renderEffects(liveData.effects);
+    syncPerformanceBrowserWithKemperRigMatch();
+    updateRigNameNavButtons();
     consecutiveMonitorFailures = 0;
     setConnectionState(CONNECTION_STATE.CONNECTED);
     startRigMonitor();
@@ -4189,6 +4711,7 @@ async function refreshLiveData() {
     setConnectionState(CONNECTION_STATE.NO_MIDI);
   } finally {
     isRefreshingLiveData = false;
+    logRigSwitchTiming("refreshLiveData total", refreshStartedAt);
   }
 }
 
@@ -4218,7 +4741,9 @@ if (createLibraryButton) {
 
 if (performanceExplorerSearch) {
   performanceExplorerSearch.addEventListener("focus", () => {
-    setPerformanceExplorerExpanded(true);
+    if (!performanceExplorerExpanded) {
+      setPerformanceExplorerExpanded(true);
+    }
   });
   performanceExplorerSearch.addEventListener("input", () => {
     if (!performanceExplorerExpanded) {
@@ -4307,6 +4832,18 @@ if (rigNotesInput) {
   rigNotesInput.addEventListener("blur", flushRigNote);
 }
 
+if (rigNamePrevButton) {
+  rigNamePrevButton.addEventListener("click", () => {
+    void selectAdjacentRigSlot(-1);
+  });
+}
+
+if (rigNameNextButton) {
+  rigNameNextButton.addEventListener("click", () => {
+    void selectAdjacentRigSlot(1);
+  });
+}
+
 if (performanceSlotGrid) {
   performanceSlotGrid.addEventListener("click", (event) => {
     const card = event.target.closest(".performance-slot-card");
@@ -4318,6 +4855,18 @@ if (performanceSlotGrid) {
 
     loadBrowserPerformanceSlot(performanceIndex, slotIndex);
   });
+
+  const performanceSlotGridWrap = performanceSlotGrid.parentElement;
+  if (performanceSlotIndicatorRow && performanceSlotGridWrap) {
+    const syncPerformanceSlotActiveIndicatorLayout = () => {
+      updatePerformanceSlotActiveIndicators();
+    };
+    const performanceSlotIndicatorResizeObserver = new ResizeObserver(
+      syncPerformanceSlotActiveIndicatorLayout
+    );
+    performanceSlotIndicatorResizeObserver.observe(performanceSlotGrid);
+    performanceSlotIndicatorResizeObserver.observe(performanceSlotGridWrap);
+  }
 }
 
 if (effectsList) {
@@ -4397,16 +4946,8 @@ parameterService.setOutputProvider(async () => {
 
 bindGainScaleControl();
 
-const audioToolsView = initializeAudioTools();
-
 registerViewChangeHandler((view) => {
   updateConnectionPresentation(connectionState);
-
-  if (view === "audio") {
-    audioToolsView.show();
-  } else {
-    audioToolsView.hide();
-  }
 });
 
 ensureGainScaleTicks();
@@ -4415,6 +4956,26 @@ applyGainDisplay(null, "");
 async function initializeApplication() {
   await initializeAmpImageResolver();
   initializeGearLibrary();
+  liveViewController = initLiveViewMode({
+    livePage,
+    performanceSection,
+    effectsSection,
+    ampDetailsSection,
+    cabinetSection,
+    rigCard,
+    ampSection,
+    ampImageContainer,
+    liveViewMenuButton,
+    liveViewMenuPanel,
+    sectionToggles: [
+      { key: "performance", toggle: document.querySelector("#liveViewTogglePerformance") },
+      { key: "effects", toggle: document.querySelector("#liveViewToggleEffects") },
+      { key: "ampDetails", toggle: document.querySelector("#liveViewToggleAmpDetails") },
+      { key: "cabinet", toggle: document.querySelector("#liveViewToggleCabinet") }
+    ],
+    ampOnlyToggle: document.querySelector("#liveViewToggleAmpOnly"),
+    ampOnlyExitButton
+  });
   await bootApplication();
 }
 

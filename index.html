@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
-    <title>Kompanion</title>
+    <title>Kempanion</title>
     <style id="boot-critical">
       html {
         color-scheme: dark;
@@ -46,11 +46,6 @@
       }
 
       body[data-app-view="gear"] #gearLibraryView {
-        display: flex;
-        flex-direction: column;
-      }
-
-      body[data-app-view="audio"] #audioToolsView {
         display: flex;
         flex-direction: column;
       }
@@ -128,7 +123,7 @@
   <body data-boot="loading" data-connection="boot_loading" data-app-view="live" data-gear-theme="museum-dark">
     <div id="bootLoadingOverlay" class="connection-overlay connection-overlay--fullscreen boot-loading-overlay" data-visible="true" aria-live="polite" aria-busy="true">
       <div class="connection-overlay-content">
-        <h1 class="connection-overlay-title">Kompanion</h1>
+        <h1 class="connection-overlay-title">Kempanion</h1>
         <p class="connection-overlay-message">Load Data...</p>
         <div class="boot-loading-spinner" aria-hidden="true"></div>
       </div>
@@ -175,15 +170,6 @@
         >
           Gear Atlas
         </button>
-        <button
-          type="button"
-          role="menuitem"
-          class="app-module-menu-item"
-          data-view="audio"
-          aria-current="false"
-        >
-          Audio Tools
-        </button>
       </div>
     </div>
 
@@ -192,7 +178,7 @@
       <div id="noMidiOverlay" class="no-midi-overlay" data-visible="false" aria-live="polite" aria-hidden="true">
         <div class="connection-overlay-content no-midi-content">
           <div class="no-midi-header">
-            <p class="no-midi-brand">Kompanion</p>
+            <p class="no-midi-brand">Kempanion</p>
             <button
               type="button"
               id="noMidiGearAtlasSwitcher"
@@ -237,6 +223,16 @@
         </div>
       </div>
       <div id="livePage" class="live-page" aria-hidden="true">
+      <button
+        type="button"
+        id="ampOnlyExitButton"
+        class="amp-only-exit-button"
+        hidden
+        aria-label="Amp Only beenden (Esc)"
+        title="Amp Only beenden (Esc)"
+      >
+        Esc
+      </button>
       <section class="title-panel">
   <div class="title-row">
 
@@ -250,12 +246,106 @@
       />
     </div>
 
-    <button
-      type="button"
-      id="gearAtlasSwitcher"
-      class="gear-atlas-switcher title-row-controls"
-      aria-label="Zu Gear Atlas wechseln"
-    >
+    <div class="title-row-controls">
+      <div class="live-view-menu">
+        <button
+          type="button"
+          id="liveViewMenuButton"
+          class="live-view-menu-button"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          aria-controls="liveViewMenuPanel"
+        >
+          View
+        </button>
+        <div id="liveViewMenuPanel" class="live-view-menu-panel" role="menu" hidden>
+          <div class="live-view-menu-list">
+            <div class="live-view-menu-row">
+              <span class="live-view-menu-label" id="liveViewLabelPerformance">Performance Browser</span>
+              <button
+                type="button"
+                id="liveViewTogglePerformance"
+                class="live-view-toggle"
+                role="switch"
+                aria-checked="true"
+                aria-labelledby="liveViewLabelPerformance"
+              >
+                <span class="live-view-toggle-track" aria-hidden="true">
+                  <span class="live-view-toggle-thumb"></span>
+                </span>
+              </button>
+            </div>
+            <div class="live-view-menu-row">
+              <span class="live-view-menu-label" id="liveViewLabelEffects">Effects</span>
+              <button
+                type="button"
+                id="liveViewToggleEffects"
+                class="live-view-toggle"
+                role="switch"
+                aria-checked="true"
+                aria-labelledby="liveViewLabelEffects"
+              >
+                <span class="live-view-toggle-track" aria-hidden="true">
+                  <span class="live-view-toggle-thumb"></span>
+                </span>
+              </button>
+            </div>
+            <div class="live-view-menu-row">
+              <span class="live-view-menu-label" id="liveViewLabelAmpDetails">Amp Details</span>
+              <button
+                type="button"
+                id="liveViewToggleAmpDetails"
+                class="live-view-toggle"
+                role="switch"
+                aria-checked="true"
+                aria-labelledby="liveViewLabelAmpDetails"
+              >
+                <span class="live-view-toggle-track" aria-hidden="true">
+                  <span class="live-view-toggle-thumb"></span>
+                </span>
+              </button>
+            </div>
+            <div class="live-view-menu-row">
+              <span class="live-view-menu-label" id="liveViewLabelCabinet">Cabinet</span>
+              <button
+                type="button"
+                id="liveViewToggleCabinet"
+                class="live-view-toggle"
+                role="switch"
+                aria-checked="true"
+                aria-labelledby="liveViewLabelCabinet"
+              >
+                <span class="live-view-toggle-track" aria-hidden="true">
+                  <span class="live-view-toggle-thumb"></span>
+                </span>
+              </button>
+            </div>
+          </div>
+          <div class="live-view-menu-divider" aria-hidden="true"></div>
+          <div class="live-view-menu-row live-view-menu-row--amp-only">
+            <span class="live-view-menu-label" id="liveViewLabelAmpOnly">Amp Only</span>
+            <button
+              type="button"
+              id="liveViewToggleAmpOnly"
+              class="live-view-toggle live-view-toggle--amp-only"
+              role="switch"
+              aria-checked="false"
+              aria-labelledby="liveViewLabelAmpOnly"
+            >
+              <span class="live-view-toggle-track" aria-hidden="true">
+                <span class="live-view-toggle-thumb"></span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        id="gearAtlasSwitcher"
+        class="gear-atlas-switcher"
+        aria-label="Zu Gear Atlas wechseln"
+      >
       <img
         class="gear-atlas-switcher-signet"
         src="/images/compass.png"
@@ -264,6 +354,7 @@
         draggable="false"
       />
     </button>
+    </div>
 
   </div>
 
@@ -284,17 +375,20 @@
                 <span>Performance Browser</span>
               </div>
               <div id="performanceExplorerSection" class="performance-explorer-section" hidden>
-                <input
-                  id="performanceExplorerSearch"
-                  class="performance-explorer-search"
-                  type="search"
-                  placeholder="Search rigs..."
-                  autocomplete="off"
-                  spellcheck="false"
-                  aria-label="Search performances, rigs"
-                  aria-expanded="false"
-                  aria-controls="performanceExplorerContent"
-                />
+                <div class="performance-explorer-search-wrap">
+                  <input
+                    id="performanceExplorerSearch"
+                    class="performance-explorer-search"
+                    type="search"
+                    placeholder="Search rigs..."
+                    autocomplete="off"
+                    spellcheck="false"
+                    aria-label="Search performances, rigs"
+                    aria-expanded="false"
+                    aria-controls="performanceExplorerContent"
+                  />
+                  <span class="performance-explorer-search-chevron" aria-hidden="true"></span>
+                </div>
               </div>
             </div>
 
@@ -309,7 +403,33 @@
                   </button>
                 </div>
 
-                <div id="performanceSlotGrid" class="performance-slot-grid"></div>
+                <div class="performance-slot-grid-wrap">
+                  <div id="performanceSlotGrid" class="performance-slot-grid"></div>
+                  <div
+                    id="performanceSlotIndicatorRow"
+                    class="performance-slot-indicator-row"
+                    aria-hidden="true"
+                    hidden
+                  >
+                    <span class="performance-slot-active-indicator">
+                      <svg
+                        class="performance-slot-active-indicator__glyph"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path
+                          d="M6.5 15.5 12 9.5l5.5 6"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.35"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                </div>
 
                 <div class="performance-browser-nav performance-browser-nav--next">
                   <button id="performanceNextButton" class="performance-nav-button" type="button" aria-label="1 Performance vor">
@@ -330,27 +450,28 @@
                 tabindex="0"
                 hidden
               >Performance 1</span>
-              <button
-                id="performanceReloadButton"
-                class="performance-reload-button"
-                type="button"
-                aria-label="Reload current performance"
-                title="Reload current performance"
-                hidden
-              >
-                <span class="performance-reload-button-icon" aria-hidden="true">↻</span>
-              </button>
+              <div class="performance-browser-meta-actions">
+                <button
+                  id="createLibraryButton"
+                  class="library-button performance-library-rebuild"
+                  type="button"
+                  hidden
+                >
+                  Rebuild Performance Library
+                </button>
+                <button
+                  id="performanceReloadButton"
+                  class="performance-reload-button"
+                  type="button"
+                  aria-label="Reload current performance"
+                  title="Reload current performance"
+                  hidden
+                >
+                  <span class="performance-reload-button-icon" aria-hidden="true">↻</span>
+                </button>
+              </div>
             </div>
           </div>
-
-          <button
-            id="createLibraryButton"
-            class="library-button performance-library-rebuild"
-            type="button"
-            hidden
-          >
-            Rebuild Performance Library
-          </button>
 
           <div id="performanceBrowserPanel" class="performance-browser-panel">
             <div id="performanceExplorerContent" class="performance-explorer-content" hidden>
@@ -378,7 +499,7 @@
             </div>
           </div>
         </div>
-        <div class="rig-card">
+        <div id="rigCard" class="rig-card">
           <div class="rig-card-header">
             <span>Current Rig</span>
             <div class="tempo-status" data-expanded="false">
@@ -430,10 +551,56 @@
               </div>
             </div>
           </div>
-          <strong id="rigName">-</strong>
+          <div class="rig-name-nav">
+            <button
+              id="rigNamePrevButton"
+              class="rig-name-nav-button"
+              type="button"
+              aria-label="Vorheriges Rig"
+            >
+              <svg
+                class="rig-name-nav-button__icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  d="M14.5 6.5 9 12l5.5 5.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.25"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+            <strong id="rigName">-</strong>
+            <button
+              id="rigNameNextButton"
+              class="rig-name-nav-button"
+              type="button"
+              aria-label="Nächstes Rig"
+            >
+              <svg
+                class="rig-name-nav-button__icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  d="M9.5 6.5 15 12l-5.5 5.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.25"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
         <!-- AMP DETAILS (3) | AMP (8) | CABINET (3) — amp centered under rig name -->
-        <div class="gain-section amp-details-section">
+        <div id="ampDetailsSection" class="gain-section amp-details-section">
           <div class="gain-section-body amp-details-body">
             <div class="section-title">
               <span>Amp Details</span>
@@ -554,7 +721,19 @@
               type="button"
               aria-label="Morph senden"
             >
-              Morph
+              <span class="control-action-button__icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path
+                    d="M2.5 8c1.6-2.2 3.2-2.6 4.5-.4.9 1.5 2.1 2.1 3.5 1.2 1.1-.7 2.2-.5 3 1.2"
+                    stroke="currentColor"
+                    stroke-width="1.25"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <circle cx="8" cy="8" r="1.1" fill="currentColor" />
+                </svg>
+              </span>
+              <span class="control-action-button__label">Morph</span>
             </button>
             <button
               id="tunerToggleButton"
@@ -564,11 +743,23 @@
               data-state="off"
               aria-pressed="false"
             >
-              Tuner
+              <span class="control-action-button__icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="8" cy="8.5" r="4.25" stroke="currentColor" stroke-width="1.25" />
+                  <path
+                    d="M8 8.5V4.25M8 4.25l1.1.55"
+                    stroke="currentColor"
+                    stroke-width="1.25"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              <span class="control-action-button__label">Tuner</span>
             </button>
           </div>
         </div>
-        <div class="gear-section amp-section">
+        <div id="ampSection" class="gear-section amp-section">
           <div class="section-title">
             <span>Amp</span>
           </div>
@@ -630,7 +821,7 @@
             ></textarea>
           </div>
         </div>
-        <div class="effects-block">
+        <div id="effectsSection" class="effects-block">
           <ul id="effectsList" class="effects-list companion-scroll" aria-label="Effects"></ul>
         </div>
       </section>
@@ -986,298 +1177,6 @@
       >
         ×
       </button>
-    </div>
-
-    <div id="audioToolsView" class="app-view-root" aria-hidden="true">
-      <div class="shell shell--audio">
-        <section class="audio-tools-panel" aria-labelledby="audioToolsTitle">
-          <header class="audio-tools-header">
-            <div>
-              <span class="audio-tools-eyebrow">Audio Tools</span>
-              <h2 id="audioToolsTitle" class="audio-tools-title">Audio Tools</h2>
-            </div>
-          </header>
-
-          <div class="audio-tools-body">
-            <div class="audio-tools-control-row">
-              <label class="audio-tools-field" for="audioToolsDeviceSelect">
-                <span>Input Device</span>
-                <select id="audioToolsDeviceSelect" class="audio-tools-select"></select>
-              </label>
-              <button
-                id="audioToolsConnectButton"
-                class="audio-tools-connect-button"
-                type="button"
-              >
-                Connect
-              </button>
-            </div>
-            <p id="audioToolsEmptyState" class="audio-tools-empty" hidden>No audio device detected.</p>
-
-            <section id="audioToolsHeroMeter" class="audio-tools-hero-meter" data-active="false">
-              <div class="audio-tools-hero-meter-track" aria-hidden="true">
-                <div class="audio-tools-hero-meter-scale">
-                  <span>-60</span>
-                  <span>-40</span>
-                  <span>-20</span>
-                  <span>0</span>
-                </div>
-                <div class="audio-tools-hero-meter-bar">
-                  <div data-meter-fill class="audio-tools-hero-meter-fill"></div>
-                  <div data-meter-peak class="audio-tools-hero-meter-peak" hidden></div>
-                </div>
-              </div>
-              <dl class="audio-tools-hero-readouts">
-                <div>
-                  <dt>Level</dt>
-                  <dd data-value="level">-∞ dBFS</dd>
-                </div>
-                <div>
-                  <dt>RMS</dt>
-                  <dd data-value="rms">-∞ dBFS</dd>
-                </div>
-                <div>
-                  <dt>Peak</dt>
-                  <dd data-value="peak">-∞ dBFS</dd>
-                </div>
-                <div>
-                  <dt>Peak Hold</dt>
-                  <dd data-value="peakHold">-∞ dBFS</dd>
-                </div>
-                <div>
-                  <dt>Clip</dt>
-                  <dd data-value="clip" data-active="false">—</dd>
-                </div>
-              </dl>
-            </section>
-
-            <section id="audioToolsChannelAnalysis" class="audio-tools-channel-analysis" data-active="false" data-mode="none">
-              <div class="audio-tools-channel-status">
-                <span data-channel-status-dot class="audio-tools-channel-status-dot" data-state="none" aria-hidden="true"></span>
-                <span data-channel-status-text class="audio-tools-channel-status-text">No Signal</span>
-              </div>
-              <div data-channel-meters class="audio-tools-channel-meters" data-layout="stereo" hidden>
-                <div data-channel-meter class="audio-tools-channel-meter" data-channel="0" data-active="false" data-highlight="false">
-                  <div class="audio-tools-channel-meter-track" aria-hidden="true">
-                    <div data-channel-fill class="audio-tools-channel-meter-fill"></div>
-                  </div>
-                  <span data-channel-label class="audio-tools-channel-meter-label">Input 1</span>
-                </div>
-                <div data-channel-meter class="audio-tools-channel-meter" data-channel="1" data-active="false" data-highlight="false">
-                  <div class="audio-tools-channel-meter-track" aria-hidden="true">
-                    <div data-channel-fill class="audio-tools-channel-meter-fill"></div>
-                  </div>
-                  <span data-channel-label class="audio-tools-channel-meter-label">Input 2</span>
-                </div>
-              </div>
-            </section>
-
-            <div class="audio-tools-status-bar">
-              <span id="audioToolsStatusDot" class="audio-tools-status-dot" data-state="idle" aria-hidden="true"></span>
-              <div class="audio-tools-status-copy">
-                <span>Engine Status</span>
-                <strong id="audioToolsStatus">Ready — select input and connect.</strong>
-                <p id="audioToolsError" class="audio-tools-error" hidden></p>
-              </div>
-            </div>
-
-            <section id="audioToolsTuner" class="audio-tools-tuner" data-active="false" data-in-tune="false">
-              <header class="audio-tools-tuner-header">
-                <h3>Chromatic Tuner</h3>
-              </header>
-              <div class="audio-tools-tuner-note-wrap">
-                <strong data-tuner-note class="audio-tools-tuner-note">—</strong>
-              </div>
-              <div class="audio-tools-tuner-meta">
-                <span data-tuner-frequency class="audio-tools-tuner-frequency">— Hz</span>
-                <span data-tuner-cents class="audio-tools-tuner-cents">— cent</span>
-              </div>
-              <div class="audio-tools-tuner-scale">
-                <div class="audio-tools-tuner-scale-track">
-                  <div class="audio-tools-tuner-scale-center" aria-hidden="true"></div>
-                  <div class="audio-tools-tuner-scale-ticks" aria-hidden="true">
-                    <span></span><span></span><span></span><span></span><span></span>
-                  </div>
-                  <div data-tuner-marker class="audio-tools-tuner-marker"></div>
-                </div>
-                <div class="audio-tools-tuner-scale-labels" aria-hidden="true">
-                  <span>−50</span>
-                  <span>0</span>
-                  <span>+50</span>
-                </div>
-              </div>
-              <p class="audio-tools-tuner-target">
-                Target <span data-tuner-target>— Hz</span>
-              </p>
-            </section>
-
-            <section id="audioToolsSignalAnalysis" class="audio-tools-signal-analysis" data-active="false" data-signal-state="none" data-signal-type="unknown">
-              <header class="audio-tools-signal-analysis-header">
-                <h3>Signal Analysis</h3>
-                <span class="audio-tools-signal-live">Live</span>
-              </header>
-              <div class="audio-tools-signal-badges">
-                <article data-badge="signalState" class="audio-tools-signal-badge" data-tone="neutral" data-icon="state">
-                  <span class="audio-tools-signal-badge-icon" aria-hidden="true"></span>
-                  <div class="audio-tools-signal-badge-copy">
-                    <span data-badge-label class="audio-tools-signal-badge-label">Signal State</span>
-                    <strong data-badge-value class="audio-tools-signal-badge-value">No Signal</strong>
-                  </div>
-                </article>
-                <article data-badge="signalType" class="audio-tools-signal-badge" data-tone="neutral" data-icon="type">
-                  <span class="audio-tools-signal-badge-icon" aria-hidden="true"></span>
-                  <div class="audio-tools-signal-badge-copy">
-                    <span data-badge-label class="audio-tools-signal-badge-label">Signal Type</span>
-                    <strong data-badge-value class="audio-tools-signal-badge-value">Unknown</strong>
-                  </div>
-                </article>
-                <article data-badge="channelMode" class="audio-tools-signal-badge" data-tone="neutral" data-icon="channel">
-                  <span class="audio-tools-signal-badge-icon" aria-hidden="true"></span>
-                  <div class="audio-tools-signal-badge-copy">
-                    <span data-badge-label class="audio-tools-signal-badge-label">Channel Mode</span>
-                    <strong data-badge-value class="audio-tools-signal-badge-value">—</strong>
-                  </div>
-                </article>
-              </div>
-              <dl class="audio-tools-signal-metrics">
-                <div data-metric="noiseFloor" class="audio-tools-signal-metric" data-tone="neutral">
-                  <dt data-metric-label>Noise Floor</dt>
-                  <dd data-metric-value>—</dd>
-                </div>
-                <div data-metric="dynamicRange" class="audio-tools-signal-metric" data-tone="neutral">
-                  <dt data-metric-label>Dynamic Range</dt>
-                  <dd data-metric-value>—</dd>
-                </div>
-                <div data-metric="crestFactor" class="audio-tools-signal-metric" data-tone="neutral">
-                  <dt data-metric-label>Crest Factor</dt>
-                  <dd data-metric-value>—</dd>
-                </div>
-                <div data-metric="dominantFrequency" class="audio-tools-signal-metric" data-tone="neutral">
-                  <dt data-metric-label>Dominant Frequency</dt>
-                  <dd data-metric-value>—</dd>
-                </div>
-                <div data-metric="pitchStability" class="audio-tools-signal-metric" data-tone="neutral">
-                  <dt data-metric-label>Pitch Stability</dt>
-                  <dd data-metric-value>—</dd>
-                </div>
-              </dl>
-            </section>
-
-            <div class="audio-tools-visual-grid">
-              <section id="audioToolsInputMeterPanel" class="audio-tools-visual-panel" data-active="false">
-                <header class="audio-tools-visual-panel-header">
-                  <h3>Input Meter</h3>
-                </header>
-                <div class="audio-tools-panel-meter-track">
-                  <div data-panel-fill class="audio-tools-panel-meter-fill"></div>
-                  <div data-panel-peak class="audio-tools-panel-meter-peak" hidden></div>
-                </div>
-                <dl class="audio-tools-panel-readouts">
-                  <div>
-                    <dt>RMS</dt>
-                    <dd data-panel-rms>-∞ dBFS</dd>
-                  </div>
-                  <div>
-                    <dt>Peak</dt>
-                    <dd data-panel-peak-value>-∞ dBFS</dd>
-                  </div>
-                  <div>
-                    <dt>Hold</dt>
-                    <dd data-panel-peak-hold>-∞ dBFS</dd>
-                  </div>
-                </dl>
-                <span data-panel-clip class="audio-tools-panel-clip" hidden>CLIP</span>
-              </section>
-
-              <section class="audio-tools-visual-panel">
-                <header class="audio-tools-visual-panel-header">
-                  <h3>Oscilloscope</h3>
-                  <span>Live</span>
-                </header>
-                <canvas id="audioToolsOscilloscope" class="audio-tools-canvas" aria-label="Live oscilloscope"></canvas>
-              </section>
-
-              <section class="audio-tools-visual-panel">
-                <header class="audio-tools-visual-panel-header">
-                  <h3>Spectrum Analyzer</h3>
-                  <span>FFT</span>
-                </header>
-                <canvas id="audioToolsSpectrum" class="audio-tools-canvas" aria-label="Live spectrum analyzer"></canvas>
-              </section>
-            </div>
-
-            <details class="audio-tools-details">
-              <summary>Technical Details</summary>
-              <div class="audio-tools-details-body">
-                <section id="audioToolsDeviceInfo" class="audio-tools-info-compact">
-                  <span class="audio-tools-section-title">Device Information</span>
-                  <dl class="audio-tools-info-grid">
-                    <div class="audio-tools-info-row">
-                      <dt>Device Name</dt>
-                      <dd data-field="name">Unknown</dd>
-                    </div>
-                    <div class="audio-tools-info-row">
-                      <dt>Sample Rate</dt>
-                      <dd data-field="sampleRate">Unknown</dd>
-                    </div>
-                    <div class="audio-tools-info-row">
-                      <dt>Channels</dt>
-                      <dd data-field="channelCount">Unknown</dd>
-                    </div>
-                    <div class="audio-tools-info-row">
-                      <dt>Layout</dt>
-                      <dd data-field="channelLayout">Unknown</dd>
-                    </div>
-                    <div class="audio-tools-info-row">
-                      <dt>Connection Active</dt>
-                      <dd data-field="connectionActive">Unknown</dd>
-                    </div>
-                  </dl>
-                </section>
-
-                <section id="audioToolsCapabilities" class="audio-tools-info-compact">
-                  <span class="audio-tools-section-title">Engine Capabilities</span>
-                  <dl class="audio-tools-info-grid">
-                    <div class="audio-tools-info-row">
-                      <dt>RMS</dt>
-                      <dd data-metric="rmsDbfs">Unknown</dd>
-                    </div>
-                    <div class="audio-tools-info-row">
-                      <dt>Peak</dt>
-                      <dd data-metric="peakDbfs">Unknown</dd>
-                    </div>
-                    <div class="audio-tools-info-row">
-                      <dt>Sample Rate</dt>
-                      <dd data-metric="sampleRate">Unknown</dd>
-                    </div>
-                    <div class="audio-tools-info-row">
-                      <dt>Channel Count</dt>
-                      <dd data-metric="channelCount">Unknown</dd>
-                    </div>
-                    <div class="audio-tools-info-row">
-                      <dt>Buffer Size</dt>
-                      <dd data-metric="bufferSize">Unknown</dd>
-                    </div>
-                    <div class="audio-tools-info-row">
-                      <dt>Base Latency</dt>
-                      <dd data-metric="baseLatency">Unknown</dd>
-                    </div>
-                    <div class="audio-tools-info-row">
-                      <dt>Output Latency</dt>
-                      <dd data-metric="outputLatency">Unknown</dd>
-                    </div>
-                    <div class="audio-tools-info-row">
-                      <dt>Input Latency</dt>
-                      <dd data-metric="inputLatency">Unknown</dd>
-                    </div>
-                  </dl>
-                </section>
-              </div>
-            </details>
-          </div>
-        </section>
-      </div>
-    </div>
     </div>
 
     <div
