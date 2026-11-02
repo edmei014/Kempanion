@@ -24,7 +24,10 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$RESOURCE/images/amps/**/*"]
+        "scope": [
+          "$RESOURCE/images/amps/**/*",
+          "$RESOURCE/images/amps-performance/**/*"
+        ]
       }
     }
   },
