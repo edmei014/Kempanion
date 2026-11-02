@@ -2,8 +2,9 @@
 
 The **Gear Library** is Kempanion’s code and data layer for equipment records. The **Gear Atlas** UI is the user-facing catalog: it browses the same normalized amp records that Live View uses for images and details. There is no separate “Live amp list”—recognition always goes through `allAmpRecords` → `src/library/` → `src/resolver/aliasResolver.js`.
 
-Application code (UI, Live View, resolvers) must **never import from `src/data/` directly**.  
-Use the public API in `src/library/index.js`.
+Application code (UI, Live View) must **not import from `src/data/` directly** — use the public API in `src/library/index.js`.
+
+**Documented exceptions (not data imports):** `src/main.js` calls `initializeAmpImageResolver()` from `src/resolver/imageResolver.js` at startup, and uses `src/cabinetImageMap.js` for Live cabinet image fallback (separate from amp alias matching in the library). Do not import `src/resolver/aliasResolver.js` from UI code.
 
 **Document name:** `GEAR_LIBRARY.md` describes the shared library architecture (not only the Atlas UI). A rename is optional; the content below matches the current implementation.
 
@@ -24,6 +25,7 @@ data/
   speakers/
   microphones/
   pedals/
+  discover/          Discover-board content (Gear Atlas column)
   ampSchema.js       createAmpRecord(), AMP_RECORD_FIELDS
 ```
 
@@ -41,11 +43,13 @@ library/
   index.js                 Public exports — import from here
   ampLibrary.js            Amps: records, browse/detail views, text→record
   manufacturerLibrary.js   Manufacturer browse/detail
-  cabinetLibrary.js        Cabinet records + text resolution (Live + data)
-  effectLibrary.js         Effect category API (stub)
+  cabinetLibrary.js        Cabinet records + text resolution (library API)
+  effectLibrary.js         Effect records (createGearLibrary store; partial public export)
+  discoverLibrary.js       Discover records + Atlas board helpers
+  discoverRotation.js      Discover column rotation helpers
   createGearLibrary.js     Shared indexed catalog factory
   fieldValues.js           Missing-value formatting (“Coming soon…”)
-  validateGearRegistry.js  Startup consistency checks
+  validateGearRegistry.js  Manual registry validation (not wired to app startup)
 ```
 
 - Normalizes records via `createAmpRecord()` (amps) or category-specific normalizers.
@@ -54,7 +58,7 @@ library/
 
 ### `src/resolver/`
 
-Helpers used **by the library** (and startup image init). UI should not import `aliasResolver.js` directly.
+Helpers used **by the library**. UI should not import `aliasResolver.js` directly; **`imageResolver.js`** may be imported for startup init only (see above).
 
 ```
 resolver/
@@ -63,7 +67,7 @@ resolver/
 ```
 
 - `aliasResolver.js` returns **only an amp id**—never descriptions or images.
-- `imageResolver.js` is used internally by `ampLibrary.js` (`resolveAmpImageSrc`); Live View calls `getAmpImage(ampId)` from the library API.
+- `imageResolver.js` sets amp image base URLs; `ampLibrary.js` wraps `resolveAmpImageSrc` when building public image URLs (see **Images** below).
 
 ---
 
@@ -118,7 +122,7 @@ Fields such as `description` may be `null` in data files; `getAmpDetailView()` a
 ## Manufacturers and `manufacturerId`
 
 - Each amp should have `manufacturerId` matching `manufacturerRecords[].id` in `src/data/manufacturers/index.js`.
-- `resolveManufacturerIdFromAmpName()` (`manufacturerIds.js`) maps display names and `MANUFACTURER_NAME_ALIASES` when authoring data.
+- When **authoring data**, `resolveManufacturerIdFromAmpName()` in `manufacturerIds.js` maps display names and `MANUFACTURER_NAME_ALIASES`. The **public library API** exposes `resolveManufacturerIdFromAmpManufacturerName()` (`manufacturerLibrary.js`), which wraps the same lookup and returns `null` when unknown.
 - Gear Atlas shows `getManufacturerDisplayName(manufacturerId)` where available.
 - **Alias index** also registers `"<manufacturer> <model>"` strings with `&` ↔ `and` variants on the **manufacturer** side only—not a separate pass on Kemper’s manufacturer field unless that string appears as its own matching source.
 
@@ -170,9 +174,9 @@ Performance library scans store the same four text fields per slot and run the s
 ### After resolution
 
 - `getAmpById(ampId)` → canonical `AmpRecord`.
-- Live View: `getAmpImage(ampId)`, `getAmpDetailView(ampId)` for overlay/details.
-- If resolution fails (`null` id): Live View clears the amp image area; Kemper labels still show (`src/main.js` only renders an image when `ampImageSrc` is set).
-- If resolution succeeds but `image` is missing/invalid: `resolveAmpImageSrc` may fall back to the shared placeholder (`/images/comingsoon.png`) when the library image helper is used—Live still treats that as “has image URL.”
+- Live View uses `getAmpImage(ampId)` and `getAmpDetailView(ampId)` for overlay/details.
+- **No match** (`null` id): Live View leaves the amp image area empty; Kemper text labels still show (`src/main.js` only renders an image when `liveData.ampImageSrc` is set).
+- **Match with missing or unusable `image` filename:** `getAmpImage(ampId)` returns **`null`** (see **Images**). Live View does **not** show a placeholder on that path.
 
 ---
 
@@ -180,63 +184,97 @@ Performance library scans store the same four text fields per slot and run the s
 
 - Records store an **image filename** only (e.g. `"marshall jcm800 2203.png"`), not a full URL.
 - `initializeAmpImageResolver()` (`imageResolver.js`) sets base paths: Tauri resource URLs in production, `/images/amps` in dev.
-- Performance Browser thumbnails use `getAmpPerformanceThumbnail()` → `images/amps-performance/` when available.
-- Bundled paths are configured in `src-tauri/tauri.conf.json` (see [ARCHITECTURE.md](ARCHITECTURE.md)).
+- **Public amp URLs:** `getAmpImage(ampId)` and browse/detail view models use `ampLibrary.js`, which calls `resolveAmpImageSrc(filename)` **only when** `isUsableAmpImageFilename(filename)` is true; otherwise the public API returns **`null`** (no image URL). **`getAmpDetailView()`** sets `imageSrc` from `getAmpImage` and `hasImage` from `hasAmpImage` — same rules, not a guaranteed placeholder.
+- **`resolveAmpImageSrc()`** alone (low-level helper in `imageResolver.js`) returns the shared placeholder (`/images/comingsoon.png`) for invalid filenames. That behavior does **not** flow through `getAmpImage()` / Live View today.
+- Performance Browser thumbnails: `getAmpPerformanceThumbnail()` → `images/amps-performance/` when a usable filename exists (`resolveAmpPerformanceThumbnailSrc`).
+- Bundled paths are configured in `src-tauri/tauri.conf.json` (see [ARCHITECTURE.md](ARCHITECTURE.md)). Optional asset generation: `scripts/generate-amp-performance-thumbnails.ps1`.
 
 ---
 
-## Amp public API
+## Public API (`src/library/index.js`)
 
-Import from `src/library/index.js`:
+Import from **`src/library/index.js` only** for gear records and queries. The list below groups **exported** symbols; it is not every internal helper inside `ampLibrary.js` et al.
 
-| Function | Description |
-|----------|-------------|
-| `getAllAmps()` | All normalized amp records |
-| `getAmpById(id)` | Single record or `null` |
-| `getManufacturers()` / manufacturer helpers | Manufacturer catalog |
-| `getAmpsByManufacturer(name)` / `getAmpsByManufacturerId(id)` | Filter by manufacturer |
-| `searchAmps(query)` | Gear Atlas-style substring search (not identical to Live matcher) |
-| `getAmpAliases(id)` | Alias list for an amp |
-| `getAmpImage(id)` / `hasAmpImage(id)` | Image URL / filename presence |
-| `getAmpImageForText(text)` / `getAmpImageFilenameForText(text)` | Text → image via alias resolver |
-| `resolveAmpRecordFromTextSources(...)` | Text → full `AmpRecord` (Live matching) |
-| `resolveAmpIdFromTextSources(...)` | Text → id only |
-| `getAmpBrowseEntries(options)` | Gear Atlas card rows |
-| `getAmpDetailView(id)` | Gear Atlas / overlay detail panel |
-| `getAmpLibraryStats()` | Counts for stats UI |
+### Amps — records, matching, images
 
-Use `getAmpDetailView()` field formatting—not raw `if (description)` on records.
+| Export | Role |
+|--------|------|
+| `getAllAmps`, `getAmpById`, `getAmpAliases` | Catalog access |
+| `getManufacturers`, `getAmpsByManufacturer`, `getAmpsByManufacturerId` | Manufacturer filters |
+| `searchAmps` | Atlas substring search (≠ Live matcher) |
+| `resolveAmpRecordFromTextSources`, `resolveAmpIdFromTextSources` | Multi-source Live matching |
+| `resolveAmpRecordFromText`, `resolveAmpIdFromText` | Single-string helpers |
+| `getAmpImage`, `getAmpImageFilename`, `hasAmpImage`, `getAmpPerformanceThumbnail` | Image URLs / thumbnails |
+| `getAmpImageForText`, `getAmpImageFilenameForText` | Text → image via matcher |
+| `getAmpDetailView`, `getAmpFieldDisplayValue` | Detail overlay / formatted fields |
+| `getAmpLibraryStats` | Counts for stats UI |
+
+### Amps — Gear Atlas browse / sort / sections
+
+| Export | Role |
+|--------|------|
+| `getAmpBrowseEntries` | Filtered card rows (query, manufacturer, sort, image filter) |
+| `buildAmpBrowseSections`, `buildAmpManufacturerViewSections`, `buildAmpTimelineSections` | Section layouts |
+| `groupAmpBrowseEntriesByManufacturer`, `segmentAmpBrowseEntriesByManufacturerRuns`, `compareAmpBrowseEntries` | Grouping and sort helpers |
+| `AMP_SORT*`, `AMP_IMAGE_FILTER`, `AMP_ATLAS_PRESENTATION*`, `normalizeAmpSort`, `parseAmpSortSpec`, … | Sort/presentation constants and parsers |
+| `AMP_BROWSER_VIEW*` (deprecated aliases) | Legacy view ids — prefer `AMP_SORT` / `AMP_ATLAS_PRESENTATION` |
+| `AMP_IMAGE_BASE_PATH` | Dev/public base path constant |
+
+### Manufacturers
+
+| Export | Role |
+|--------|------|
+| `getManufacturerById`, `getManufacturerDisplayName`, `getManufacturerDetailView` | Detail and labels |
+| `getManufacturerBrowseEntries`, `getAllManufacturerIds`, `getManufacturerLibraryStats` | Atlas manufacturer browse |
+| `resolveManufacturerIdFromAmpManufacturerName` | Public name → `manufacturerId` (wrapper around data-layer lookup) |
+
+### Cabinets (library resolver — not `cabinetImageMap`)
+
+| Export | Role |
+|--------|------|
+| `getAllCabinets`, `getCabinetById`, `searchCabinets` | Catalog |
+| `resolveCabinetRecordFromTextSources` | Longest-alias text match (`cabinetLibrary.js`) |
+| `getCabinetDetailView`, `getCabinetImage` | Detail and image URL |
+
+Live View may still use **`cabinetImageMap.js`** in addition to this API ([ARCHITECTURE.md](ARCHITECTURE.md)).
+
+### Effects
+
+**Exported:** `getAllEffects()` only.
+
+**Internal to `effectLibrary.js` (not in `index.js`):** e.g. `getEffectById`, `searchEffects`, `getEffectImage`. Use or export via `index.js` if UI needs them.
+
+### Discover (Gear Atlas column)
+
+| Export | Role |
+|--------|------|
+| `getAllDiscoverRecords`, `getDiscoverById`, `getDiscoverRecordsByCategory`, … | Discover content |
+| `createDiscoverBoardState`, `advanceDiscoverBoard`, `createDiscoverEntryView`, … | Board UI helpers |
+| `createDiscoverRotationController`, `rotateDiscoverSlot`, … | Rotation timing helpers |
+
+Use `getAmpDetailView()` field formatting for amp details—not raw `if (description)` on records.
 
 ---
 
-## When automatic matching fails (user-oriented)
+## Improving Live matching (contributors)
 
-Kemper **rig names are user-defined**. They often do not spell out official manufacturer and model names—shortened labels (e.g. `Mars` vs `Marshall`), descriptive titles (e.g. `Fender Fan`), or typos (e.g. `Duel Rectifier` vs `Dual Rectifier`) are common *patterns*; matching looks for **catalog alias substrings**, not intent. The same limitations apply to performance library `ampId` enrichment.
+Matching uses **catalog alias substrings**, not user intent. To fix missed Live matches or wrong `ampId` on performance slots, add **specific `aliases[]`** on the correct `AmpRecord` in `src/data/amps/`, then run the normalize script. Do **not** duplicate matching logic in Live View or Gear Atlas UI.
 
-1. **Check Kemper strings** — Rig name and amp tags must contain text that matches a catalog alias (often model name or a known nickname in `aliases`).
-2. **Search Gear Atlas** — Use manufacturer and model as you would in the real world; `searchAmps()` does not use the Live matcher and does not require the rig name to match.
-3. **Missing image ≠ missing catalog entry** — Live View may show no image while the amp still exists in the Atlas; search manually by manufacturer/model.
-4. **Catalog gap** — If the amp is not in `src/data/amps/`, it cannot appear in Gear Atlas or Live library visuals until added (see below).
-5. **Ambiguous rigs** — Two models sharing a substring may resolve to the longer alias only; there is no chooser dialog.
+For user-facing troubleshooting (Atlas search vs Live, missing images, catalog gaps), see [README.md](../README.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
-Contributors improve Live matching by adding **specific aliases** on the correct `AmpRecord`, not by duplicating lists in Live View code.
-
----
-
-## Performance library metadata (Kempanion-only)
-
-Custom **performance names** (`performanceNames`) and **slot notes** (`slotNotes`, keys like `"12:4"` for performance 12 slot 4) are merged into the performance library document on save. Legacy rig-name notes (`rigNotes`) are migrated on load when unambiguous; otherwise they are kept in `rigNotesLegacy`. All of this is **local to Kempanion** (Tauri file or `localStorage` fallback)—not sent to the Kemper. See [ARCHITECTURE.md](ARCHITECTURE.md) for scan vs reload and Live View vs cache.
+Performance library names, slot notes, and scan behavior are documented in [ARCHITECTURE.md](ARCHITECTURE.md) — not part of the Gear Library data layer.
 
 ---
 
 ## Adding a new amp
 
-1. Open or create `src/data/amps/<fileKey>.js` (e.g. `marshall.js`).
-2. Add a record with `id`, `manufacturerId`, `manufacturer`, `model`, and `aliases` (image optional).
-3. Import and spread the array in `src/data/amps/index.js`.
-4. Ensure `manufacturerId` exists in `src/data/manufacturers/index.js`.
-5. Run `node scripts/normalize-amp-records.mjs`.
-6. No UI changes required for Atlas browse; new aliases affect Live matching after reload.
+1. Add a record (with `id`, `manufacturerId`, `manufacturer`, `model`, and `aliases`; image optional) to the appropriate `src/data/amps/<fileKey>.js`, or create that file if needed.
+2. Ensure `manufacturerId` exists in `src/data/manufacturers/index.js`.
+3. Run **`node scripts/normalize-amp-records.mjs`**. This **regenerates** all manufacturer amp files and **`src/data/amps/index.js`** from `allAmpRecords` — you do not need to maintain `index.js` imports by hand after normalize.
+4. The script maps `manufacturer` → file name via an internal **`FILE_NAMES`** table for special keys (e.g. `3rd Power` → `thirdPower.js`, `Tone King` → `toneKing.js`); other manufacturers default to a lowercased slug from the display name. Add a `FILE_NAMES` entry when the default slug is wrong.
+5. No UI changes required for Atlas browse; new aliases affect Live matching after app reload.
+
+Optional: run **`validateGearRegistry()`** from `validateGearRegistry.js` (manual call) to check registry consistency.
 
 ### Example (minimal)
 
@@ -267,15 +305,23 @@ Custom **performance names** (`performanceNames`) and **slot notes** (`slotNotes
 
 ## Adding a new manufacturer
 
-1. Create `src/data/amps/<fileKey>.js` with amps using that `manufacturerId`.
-2. Register amps in `src/data/amps/index.js`.
-3. Add a profile to `src/data/manufacturers/index.js` with the **same** `id`.
-4. Optional: `MANUFACTURER_NAME_ALIASES` in `src/data/manufacturers/manufacturerIds.js` for spelling variants.
-5. Run `node scripts/normalize-amp-records.mjs`.
-
-`validateGearRegistry()` logs amp counts and reports amps whose `manufacturerId` is missing from manufacturer records.
+1. Add a profile to `src/data/manufacturers/index.js` with a stable `id`.
+2. Create or extend `src/data/amps/<fileKey>.js` with amps using that **`manufacturerId`** (set `FILE_NAMES` in the normalize script if the file key should not be auto-derived).
+3. Optional: `MANUFACTURER_NAME_ALIASES` in `src/data/manufacturers/manufacturerIds.js` for spelling variants when authoring `manufacturer` strings.
+4. Run **`node scripts/normalize-amp-records.mjs`** (regenerates amp files and `index.js`).
 
 Do **not** maintain a separate Kempanion amp list in Live View code.
+
+### `validateGearRegistry()` (manual)
+
+Not invoked during app startup or build. Call **`validateGearRegistry({ warn: true })`** from `src/library/validateGearRegistry.js` when you want a consistency report after data edits. It checks among other things:
+
+- **Duplicate amp ids**
+- **Duplicate aliases** (same alias string claimed by multiple amps)
+- **Empty alias lists**
+- **Missing or orphan `manufacturerId`** values (amps pointing at unknown manufacturer records, and manufacturers with no amps)
+
+Returns a structured report (`ok`, counts, issue lists). Fixing issues is a data/contributor task — the app does not auto-run this.
 
 ---
 
@@ -292,18 +338,20 @@ Do **not** maintain a separate Kempanion amp list in Live View code.
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/normalize-amp-records.mjs` | Enforce AmpRecord fields in manufacturer files |
+| `scripts/normalize-amp-records.mjs` | Normalize all amps with `createAmpRecord()`, rewrite manufacturer files and `amps/index.js` |
+| `scripts/generate-amp-performance-thumbnails.ps1` | Generate `amps-performance` thumbnail assets from full-size amp images (optional maintenance) |
 | `scripts/migrate-amp-data.mjs` | Legacy one-time migration helper |
 
 ---
 
 ## Rules for contributors
 
-- **Do not** import `src/data/*` from UI or Live View code.
+- **Do not** import `src/data/*` from UI or Live View code (library layer imports data).
+- **Do not** import `aliasResolver.js` from UI; use `src/library/index.js` matching helpers.
 - **Do not** implement matching in data files or Gear Atlas UI—extend aliases and use the library API.
 - **Do not** add UI-specific formatting in data or resolver layers.
-- **Do** use `createAmpRecord()` / normalize script after data edits.
-- **Do** extend `src/library/index.js` when new query patterns are needed.
+- **Do** run `node scripts/normalize-amp-records.mjs` after amp data edits.
+- **Do** extend `src/library/index.js` when new query patterns should be public.
 
 ---
 
